@@ -1,38 +1,38 @@
 /*********************************************************************
- * @file  Apllication.hpp
+ * @file  Application.hpp
  * @author Florian Houssin <houssin-de-s@insa-toulouse.fr>
- * @brief Fichier header de l'application
+ * @brief Application header file
  *********************************************************************/
 #ifndef APPLICATION_HPP_
 #define APPLICATION_HPP_
 
 /**
  * @class Application
- * @brief Classe Application
+ * @brief Project wide application
  */
 class Application
 {
 public:
     /**
-     * @fn Application();
-     * @brief Constructeur par defaut
+     * @fn Application()
+     * @brief Default constructor
      */
     Application();
     /**
-     * @fn Application();
-     * @brief Destructeur
+     * @fn Application()
+     * @brief Destructor
      */
     ~Application();
     /**
-     * @fn void init(void)
-     * @brief Fonction d'initialisation de l'application
+     * @fn void Init()
+     * @brief Initialize application
      */
-    void init(void);
+    void Init();
     /**
-     * @fn void run(void)
-     * @brief Fonction de lancement de l'application
+     * @fn void Update()
+     * @brief Run the application update loop once
      */
-    void run(void);
+    void Update();
 
 private:
 

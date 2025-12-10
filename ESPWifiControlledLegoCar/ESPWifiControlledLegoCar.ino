@@ -4,10 +4,10 @@ Application application;
 
 void setup()
 {
-    application.init();
+    application.Init();
 }
 
 void loop()
 {
-    application.run();
+    application.Update();
 }

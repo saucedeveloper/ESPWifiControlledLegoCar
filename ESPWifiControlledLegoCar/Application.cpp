@@ -1,7 +1,7 @@
 /*********************************************************************
- * @file  Apllication.cpp
+ * @file  Application.cpp
  * @author Florian Houssin <houssin-de-s@insa-toulouse.fr>
- * @brief Fichier source de l'application
+ * @brief Application source file
  *********************************************************************/
 #include "Application.hpp"
 
@@ -13,10 +13,10 @@ Application::~Application()
 {
 }
 
-void Application::init(void)
+void Application::Init()
 {
 }
 
-void Application::run(void)
+void Application::Update()
 {
 }
