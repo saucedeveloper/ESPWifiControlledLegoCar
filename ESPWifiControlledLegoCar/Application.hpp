@@ -6,6 +6,9 @@
 #ifndef APPLICATION_HPP_
 #define APPLICATION_HPP_
 
+inline const char* const NETWORK_NAME = "Galaxy A20e 070";
+inline const char* const PASS_TO_NETWORK = "cxlv3111";
+
 /**
  * @class Application
  * @brief Project wide application
