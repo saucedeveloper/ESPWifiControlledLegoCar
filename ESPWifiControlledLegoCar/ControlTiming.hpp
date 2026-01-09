@@ -16,6 +16,8 @@ public:
 
     bool Tick(unsigned long now, float& outSignalValue);
 
+    void ResetState();
+
     ControlSetting& Setting();
     const ControlSetting& Setting() const;
 
@@ -32,6 +34,10 @@ ControlTiming::ControlTiming(ControlSetting setting)
 
 inline bool ControlTiming::Tick(unsigned long now, float& outSignalValue)
 {
+    long deltaTime = (long)now - (long)m_LastTime;
+    if (deltaTime < -1 || 1 < deltaTime)
+        Serial.printf("ControlTiming warning: last time to now = %ldms\n", deltaTime);
+
     if (now <= m_LastTime && m_LastTime != UINT16_MAX)
     {
         outSignalValue = 0.0F;
@@ -51,6 +57,12 @@ inline bool ControlTiming::Tick(unsigned long now, float& outSignalValue)
     m_CurrentIndex = (m_CurrentIndex + 1) % m_Setting.period;
     m_LastTime = now;
     return true;
+}
+
+inline void ControlTiming::ResetState()
+{
+    m_LastTime = UINT16_MAX;
+    m_CurrentIndex = 0;
 }
 
 inline ControlSetting& ControlTiming::Setting() { return m_Setting; }
