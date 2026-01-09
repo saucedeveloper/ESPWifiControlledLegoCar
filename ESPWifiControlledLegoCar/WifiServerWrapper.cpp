@@ -18,20 +18,22 @@ bool WifiServerWrapper::Initialize(
     while (WiFi.status() != WL_CONNECTED && connectionTimeWaited < networkConnectionTimeout)
     {
         delay(500);
+        connectionTimeWaited = millis() - connectionStartTime;
         if (waitForConnection != nullptr)
-            waitForConnection(millis() - connectionStartTime);
+            waitForConnection(connectionTimeWaited);
     }
 
-    if (networkConnectionTimeout <= connectionTimeWaited)
+    if (WiFi.status() != WL_CONNECTED)
         return false;
 
     m_Server.begin();
     return true;
 }
 
-void WifiServerWrapper::HandleConnection(HandleHttpRequestCallback handleHttpRequest, unsigned long connectionTimeout)
+bool WifiServerWrapper::HandleConnection(HandleHttpRequestCallback handleHttpRequest, unsigned long connectionTimeout)
 {
     WiFiClient client = m_Server.available();
+    bool processedText = false;
 
     if (client) // If a new client connects,
     {
@@ -62,6 +64,9 @@ void WifiServerWrapper::HandleConnection(HandleHttpRequestCallback handleHttpReq
                         client.println();
 
                         handleHttpRequest(client, const_cast<const String&>(httpRequestHeader));
+
+                        Serial.print("Done handling request");
+
                         #if EXAMPLE_CODE
                         // turns the GPIOs on and off
                         if (httpRequestHeader.indexOf("GET /5/on") >= 0)
@@ -127,12 +132,18 @@ void WifiServerWrapper::HandleConnection(HandleHttpRequestCallback handleHttpReq
                 {
                     // currentLine += c;  // add it to the end of the currentLine
                     currentLineLength++;
+                    processedText = true;
                 }
             }
 
             currentTime = millis();
         }
+
         // Close the connection
         client.stop();
+        if (processedText)
+            Serial.print(", closed connection");
     }
+
+    return processedText;
 }
