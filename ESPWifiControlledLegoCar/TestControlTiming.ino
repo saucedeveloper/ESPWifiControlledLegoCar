@@ -2,9 +2,14 @@
 
 #if MAIN_TEST_CONTROL_TIMING
 
+#include <ESP8266WiFi.h>
+
+#include <Servo.h>
+
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdio>
 #include <numeric>
 
 #include "Application.hpp"
@@ -17,7 +22,7 @@ unsigned long previousMillis;
 unsigned long loopCounter = 0;
 unsigned long counterIndex = 0;
 
-ControlTiming controlTiming(ControlSetting{50, 0.1F});
+ControlTiming controlTiming(ControlSetting{50, 0.0F});
 WifiServerWrapper server(80);
 
 void DelayStart()
@@ -65,7 +70,14 @@ void setup()
     DelayStart();
 
     auto waitForConnection = [](unsigned long) { Serial.print("."); };
-    server.Initialize(NETWORK_NAME, PASS_TO_NETWORK, waitForConnection , 8000);
+    bool initResult = server.Initialize(NETWORK_NAME, PASS_TO_NETWORK, waitForConnection , 18000);
+    if (initResult)
+    {
+        Serial.printf("Initialized successfully at ");
+        Serial.println(WiFi.localIP());
+    }
+    else
+        Serial.println("Failed to initialize");
 }
 
 template <typename T>
@@ -74,9 +86,10 @@ T Clamp(T value, T min, T max)
     return std::min(max, std::max(min, value));
 }
 
-uint8_t ledState = LOW;
+#if ANALYSE_SIGNAL_VALUES
 std::array<uint8_t, 500> signalValues{};
 size_t signalValueIndex = 0;
+#endif
 
 const char* const htmlBaseContent[] = {
     "<!DOCTYPE html><html>",
@@ -93,10 +106,12 @@ const char* const htmlBaseContent[] = {
 
 #define BUTTON_PAGE_NAME_DRIVE "/drive/"
 #define BUTTON_PAGE_NAME_DRIVE_N "/drive/N"
+#define BUTTON_PAGE_NAME_DRIVE_USE_HASH "/drive/hash"
 
 #define BUTTON_HTML_START "<p><a href=\""
 #define BUTTON_HTML_MIDDLE "\"><button class=\"button\">"
-#define HTTP_REQUEST_GET_TARGET ("GET " BUTTON_PAGE_NAME_DRIVE)
+#define HTTP_REQUEST_GET_DRIVE_TARGET ("GET " BUTTON_PAGE_NAME_DRIVE)
+#define HTTP_REQUEST_GET_DRIVE_USE_HASH_TARGET ("GET " BUTTON_PAGE_NAME_DRIVE_USE_HASH)
 
 #define BUTTON_HTML_END "</button></a></p>"
 
@@ -108,10 +123,25 @@ constexpr uint8_t DRIVE_BUTTON_MAX_COUNT =
     + STR_LITTERAL_CHAR_COUNT(BUTTON_HTML_END);
 
 constexpr uint8_t DRIVE_SELECTION_COUNT = 5;
-constexpr float DRIVE_INPUT_MAX = 0.6F;
+constexpr float DRIVE_INPUT_MAX = 0.28F;
 
 float driveInput = 0.0F;
 uint8_t driveSelection = 0;
+bool driveUseHashing = false;
+
+void SetDriveInput(float average)
+{
+    if (driveUseHashing)
+    {
+        controlTiming.ResetState();
+        controlTiming.Setting().average = average;
+    }
+    else
+    {
+        uint8_t analogSignal = Clamp<int>((int)std::roundf(average * 255.0F), 0, 255);
+        analogWrite(MOTOR_CONTROL_PIN, analogSignal);
+    }
+}
 
 bool SetDriveSelection(int newSelection)
 {
@@ -119,23 +149,78 @@ bool SetDriveSelection(int newSelection)
     {
         driveSelection = newSelection;
         driveInput = DRIVE_INPUT_MAX * (float)driveSelection / (DRIVE_SELECTION_COUNT - 1.0F);
+
+        SetDriveInput(driveInput);
         return true;
     }
+
     return false;
 }
 
+void SetDriveUseHash(bool useHash)
+{
+    if (driveUseHashing != useHash)
+    {
+        if (useHash)
+        {
+            controlTiming.ResetState();
+            controlTiming.Setting().average = driveInput;
+        }
+
+        driveUseHashing = useHash;
+    }
+}
+
+using BitOfSyntaxToMakeArduinoCompilerShutTheHellUp = int;
+
 void HandleHttpRequest(WiFiClient& client, const String& httpRequestHeader)
 {
-    int indexOfGetDrive = httpRequestHeader.indexOf(HTTP_REQUEST_GET_TARGET);
+    bool handledRequest = false;
+
+    int indexOfGetDrive = httpRequestHeader.indexOf(HTTP_REQUEST_GET_DRIVE_TARGET);
     if (0 <= indexOfGetDrive)
     {
-        int targetIndex = indexOfGetDrive + STR_LITTERAL_CHAR_COUNT(HTTP_REQUEST_GET_TARGET);
+        int targetIndex = indexOfGetDrive + STR_LITTERAL_CHAR_COUNT(HTTP_REQUEST_GET_DRIVE_TARGET);
         if (targetIndex < httpRequestHeader.length())
         {
             char requestIndex = httpRequestHeader[targetIndex];
-            int newSelection = requestIndex - '0';
-            SetDriveSelection(newSelection);
+            if ('0' <= requestIndex && requestIndex < DRIVE_SELECTION_COUNT + '0')
+            {
+                int newSelection = requestIndex - '0';
+                bool selectResult = SetDriveSelection(newSelection);
+
+                if (selectResult)
+                {
+                    handledRequest = true;
+                    Serial.printf("Selected drive: %hhu (%f)\n", driveSelection, driveInput);
+                }
+            }
         }
+    }
+
+    if (!handledRequest)
+    {
+        int indexOfGetDriveUseHash = httpRequestHeader.indexOf(HTTP_REQUEST_GET_DRIVE_USE_HASH_TARGET);
+        if (0 <= indexOfGetDriveUseHash)
+        {
+            int targetIndex = indexOfGetDriveUseHash + STR_LITTERAL_CHAR_COUNT(HTTP_REQUEST_GET_DRIVE_USE_HASH_TARGET);
+            if (targetIndex < httpRequestHeader.length())
+            {
+                char requestIndex = httpRequestHeader[targetIndex];
+                if (requestIndex == '0' || requestIndex == '1')
+                {
+                    SetDriveUseHash(requestIndex == '1');
+                    handledRequest = true;
+                    Serial.printf("Selected hashing: %s\n", driveUseHashing ? "on" : "off");
+                }
+            }
+        }
+    }
+
+    if (!handledRequest)
+    {
+        Serial.printf("Requested unhandled header: ");
+        Serial.println(httpRequestHeader);
     }
 
     for (const auto& line : htmlBaseContent)
@@ -143,10 +228,18 @@ void HandleHttpRequest(WiFiClient& client, const String& httpRequestHeader)
         client.println(line);
     }
 
-    // Display current state: drive input
+    // Display current state: drive input, use hash
     client.print("<p>Drive: ");
     client.print((int)std::roundf(driveInput * 100.0F));
-    client.println("%</p>");
+    client.print("%, Hash: ");
+    client.print(driveUseHashing ? "on" : "off");
+    client.println("</p>");
+
+    client.print("<p><a href=\"" BUTTON_PAGE_NAME_DRIVE_USE_HASH);
+    client.print(driveUseHashing ? "0" : "1");
+    client.print("\"><button class=\"button\">Hash ");
+    client.print(driveUseHashing ? "ON" : "OFF");
+    client.println("</button></a></p>");
 
     char buffer[DRIVE_BUTTON_MAX_COUNT] = {0};
     size_t bufferIndex = 0;
@@ -169,8 +262,8 @@ void HandleHttpRequest(WiFiClient& client, const String& httpRequestHeader)
 
         float correspondingInputValue = DRIVE_INPUT_MAX * (float)i / (DRIVE_SELECTION_COUNT - 1.0F);
         uint8_t percentageValue = (int)std::roundf(correspondingInputValue * 100.0F);
-        std::sprintf(&buffer[bufferIndex], "%hhu", percentageValue);
-        bufferIndex += (percentageValue <= 9) ? 1 : 2;
+        std::sprintf(&buffer[bufferIndex], "%02hhu", percentageValue);
+        bufferIndex += 2;
 
         if (i == driveSelection)
         {
@@ -194,25 +287,30 @@ void HandleHttpRequest(WiFiClient& client, const String& httpRequestHeader)
 
 void loop()
 {
-    unsigned long now = millis();
+    bool processedSome = server.HandleConnection(&HandleHttpRequest);
+    if (processedSome)
+        Serial.println(", back to loop");
 
-    server.HandleConnection(HandleHttpRequest);
-
-    float signalValue = 0.0F;
-    if (controlTiming.Tick(now, signalValue))
+    if (driveUseHashing)
     {
-        uint8_t analogSignal = Clamp<int>((int)std::roundf(signalValue * 255.0F), 0, 255);
-        analogWrite(MOTOR_CONTROL_PIN, analogSignal);
+        float signalValue = 0.0F;
+        unsigned long now = millis();
 
-        ledState = 1 - ledState;
-        digitalWrite(LED_BUILTIN, ledState);
-        signalValues[signalValueIndex] = analogSignal;
-        signalValueIndex++;
-        if (signalValues.size() <= signalValueIndex)
+        if (controlTiming.Tick(now, signalValue))
         {
-            float average = (float)std::accumulate(signalValues.begin(), signalValues.end(), 0.0F) / (float)signalValues.size();
-            Serial.printf("Average: %f (now: %lu)\n", average / 255.0F, now);
-            signalValueIndex = 0;
+            uint8_t analogSignal = Clamp<int>((int)std::roundf(signalValue * 255.0F), 0, 255);
+            analogWrite(MOTOR_CONTROL_PIN, analogSignal);
+
+            #if ANALYSE_SIGNAL_VALUES
+            signalValues[signalValueIndex] = analogSignal;
+            signalValueIndex++;
+            if (signalValues.size() <= signalValueIndex)
+            {
+                float average = (float)std::accumulate(signalValues.begin(), signalValues.end(), 0.0F) / (float)signalValues.size();
+                Serial.printf("Average: %f (now: %lu)\n", average / 255.0F, now);
+                signalValueIndex = 0;
+            }
+            #endif
         }
     }
 }
