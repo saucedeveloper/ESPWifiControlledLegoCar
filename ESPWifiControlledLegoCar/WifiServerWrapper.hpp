@@ -20,7 +20,7 @@ public:
         WatingForConnectionCallback waitForConnection = nullptr,
         unsigned long networkConnectionTimeout = 5000);
 
-    void HandleConnection(HandleHttpRequestCallback handleHttpRequest, unsigned long connectionTimeout = 2000);
+    bool HandleConnection(HandleHttpRequestCallback handleHttpRequest, unsigned long connectionTimeout = 2000);
 
 private:
     WiFiServer m_Server;
